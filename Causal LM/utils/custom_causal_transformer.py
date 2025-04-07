@@ -7,6 +7,7 @@ import time
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+LR = 1e-4
 
 
 class PositionalEncoding(torch.nn.Module):
@@ -120,8 +121,9 @@ class CausalTransformer(nn.Module):
         
         return output
 
+
 def train(
-    model, 
+    model: torch.nn.Module, 
     optimizer: torch.optim.Adam, 
     loss_fn: torch.nn.CrossEntropyLoss, 
     dl: torch.utils.data.DataLoader,
@@ -157,10 +159,11 @@ def train(
             time.sleep(0.01)
 
     return avg_loss_hist
+
     
 @torch.no_grad()
 def generate(
-    model,
+    model: torch.nn.Module,
     encoded_input: torch.Tensor,
     block_size: int,
     max_new_tokens: int
@@ -177,3 +180,10 @@ def generate(
         encoded_input = torch.cat([encoded_input, next_token], dim=1)
 
     return encoded_input
+
+
+def configure_optimizer(
+	model: torch.nn.Module,
+	lr: float = LR
+) -> torch.optim.optimizer:
+	return torch.optim.AdamW(model.parameters(), lr)

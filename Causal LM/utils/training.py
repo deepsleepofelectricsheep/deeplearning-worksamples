@@ -175,3 +175,11 @@ def main():
 	encoder = TokenEncoder(corpus, seq_len, chunk_size)
 	ds = DatasetForCausalLM(encoder.chunks)
 	dl = load_data(ds, batch_size)
+
+	# Initialize model
+
+	# Define optimizer and loss
+
+	# Train model
+
+	# Save model

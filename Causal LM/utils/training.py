@@ -235,7 +235,7 @@ def main():
 	# Load model weights from checkpoint
 	resume_from_checkpoint = args.get("resume_from_checkpoint")
 	if resume_from_checkpoint:
-		model.load_state_dict(torch.load(resume_from_checkpoint))
+		model.load_state_dict(torch.load(resume_from_checkpoint, weights_only=True))
 		print(f"Model loaded from {resume_from_checkpoint}.")
 
 	# Define optimizer and loss

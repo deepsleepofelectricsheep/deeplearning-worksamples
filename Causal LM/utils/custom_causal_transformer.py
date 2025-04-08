@@ -128,7 +128,8 @@ def train(
     loss_fn: torch.nn.CrossEntropyLoss, 
     dl: torch.utils.data.DataLoader,
     epochs: int = 5,
-    log_interval: int = 100
+    log_interval: int = 100,
+    return_avg_loss_hist: bool = False
 ) -> list:
     """Basic training loop for Causal LM."""
 
@@ -156,9 +157,10 @@ def train(
                 avg_loss_hist.append(avg_loss)
                 print(f"Epoch {epoch+1} Step {i} | Average loss: {avg_loss:0.4f}")
 
-            time.sleep(0.01)
+            time.sleep(0.05)
 
-    return avg_loss_hist
+    if return_avg_loss_hist:
+        return avg_loss_hist
 
     
 @torch.no_grad()
@@ -185,5 +187,5 @@ def generate(
 def configure_optimizer(
 	model: torch.nn.Module,
 	lr: float = LR
-) -> torch.optim.optimizer:
+) -> torch.optim.Optimizer:
 	return torch.optim.AdamW(model.parameters(), lr)

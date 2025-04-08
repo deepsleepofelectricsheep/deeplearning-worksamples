@@ -13,10 +13,10 @@ class TokenEncoder:
         self.tokens_encoded = np.array(
             [self.token2int[tok] for tok in self.tokens]
         )
-        self.chunks = [
+        self.chunks = np.array([
             self.tokens_encoded[i:i+seq_len+chunk_size] 
             for i in range(len(self.tokens_encoded)-seq_len-chunk_size+1)
-        ]
+        ])
         
     def encode(self, s: str) -> np.ndarray:
         tokens = self.tokenizer(s)

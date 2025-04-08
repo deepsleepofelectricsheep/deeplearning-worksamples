@@ -20,6 +20,7 @@ NUM_ENCODER_LAYERS = 6
 
 BLOCK_SIZE = 100
 MAX_NEW_TOKENS = 500
+SCALE_FACTOR = 0.95
 
 INPUT_TEXT = "K. cried in the court of law."
 
@@ -89,6 +90,13 @@ def _setup_parser():
 		help=("Maximum sequence length of input to train the causal lm" 
 			  f"to predict the next token. Default: {SEQ_LEN}")
 	)
+	parser.add_argument(
+		"--scale_factor",
+		type=float,
+		default=SCALE_FACTOR,
+		help=("Factor by which to scale logits before sampling" 
+			  f"Default: {SCALE_FACTOR}")
+	)
 
 	return parser 
 
@@ -143,12 +151,14 @@ def main():
 	# Generate output sequence
 	block_size = args.get("block_size")
 	max_new_tokens = args.get("max_new_tokens")
+	scale_factor = args.get("scale_factor")
 
 	encoded_output = generate(
 	    model,
 	    encoded_input,
 	    block_size,
-	    max_new_tokens
+	    max_new_tokens,
+	    scale_factor
 	)
 
 	# Decode and print output

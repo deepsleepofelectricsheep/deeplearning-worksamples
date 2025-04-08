@@ -2,6 +2,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.distributions.categorical import Categorical
 import math
 import time
 
@@ -168,19 +169,22 @@ def generate(
     model: torch.nn.Module,
     encoded_input: torch.Tensor,
     block_size: int,
-    max_new_tokens: int
+    max_new_tokens: int,
+    scale_factor: float = 0.95
 ) -> torch.tensor:
     """Auto-regressive next token prediction."""
-
+    
     model = model.to(DEVICE)
     encoded_input = encoded_input.to(DEVICE)
     model.eval()
-
+    
     for Sy in range(max_new_tokens):
-        logits = model(encoded_input[:, -block_size:])
-        next_token = torch.argmax(logits[-1], dim=-1, keepdim=True)
+        logits = model(encoded_input[:, -block_size:])[-1]
+        scaled_logits = logits * scale_factor
+        m = Categorical(logits=scaled_logits)
+        next_token = m.sample().unsqueeze(0)
         encoded_input = torch.cat([encoded_input, next_token], dim=1)
-
+        
     return encoded_input
 
 

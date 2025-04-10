@@ -1,0 +1,19 @@
+name: galaxy10-cli
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pytorch
+  - pytorch-cuda
+  - pytorch-lightning
+  - numpy
+  - scikit-learn
+  - h5py
+  - tqdm
+  - click
+  - pip
+  - pip:
+      - astronn

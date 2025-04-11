@@ -5,8 +5,10 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - python=3.10
+  - python=3.11
   - pytorch
+  - torchvision
+  - torchmetrics
   - pytorch-cuda
   - pytorch-lightning
   - numpy
@@ -14,6 +16,7 @@ dependencies:
   - h5py
   - tqdm
   - click
+  - jupyter
   - pip
   - pip:
       - astronn

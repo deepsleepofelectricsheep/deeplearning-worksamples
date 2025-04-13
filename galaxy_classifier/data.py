@@ -1,149 +1,109 @@
 """
 Data module for the Galaxy10 classification task.
 
-Here we will define a PyTorch Lightning DataModule that downloads,
-preprocesses, and splits the data.
+Here we will define a PyTorch Dataset object, and a function that
+downloads the Galaxy10 dataset, and returns a PyTorch DataLoader 
+object. 
 
 Reference: https://astronn.readthedocs.io/en/latest/galaxy10.html
 """
-from typing import Any, Callable, Dict, Sequence, Tuple, Union
+import random
 
 import numpy as np
-
 import torch 
-from torch.utils.data import Dataset, DataLoader, Subset, random_split
-from torchvision import transforms
-import pytorch_lightning as pl 
+from torch.utils.data import Dataset, DataLoader
+from torchvision.transforms import ToTensor, Compose
 
 from astroNN.datasets import load_galaxy10
+from astroNN.datasets.galaxy10 import galaxy10cls_lookup
+
+from PIL.Image import fromarray
 
 
-SequenceOrTensor = Union[Sequence, torch.Tensor]
+BATCH_SIZE = 8
+TEST_SPLIT = 0.1
+VAL_SPLIT = 0.1
 
 
 class Galaxy10Dataset(Dataset):
-	"""PyTorch Dataset object that transforms and loads the data."""
+    """PyTorch Dataset object that transforms and loads the data."""
 
-	def __init__(
-		self, 
-		images: SequenceOrTensor, 
-		labels: SequenceOrTensor,
-		transform: Callable = None,
-	) -> None:
-		self.images = images
-		self.labels = labels
-		self.transform = transform
+    def __init__(self, images, labels, transform=None):
+        super().__init__()
+        self.images = images
+        self.labels = labels
+        # Fallback to default if no transform is specified
+        self.transform = transform if transform else Compose([ToTensor()])
 
-	def __len__(self) -> int:
-		return len(self.images)
+    def __getitem__(self, idx):
+        image = fromarray(self.images[idx].astype("uint8"))
+        label = self.labels[idx]
+        return self.transform(image), label
 
-	def __getitem__(
-		self, 
-		idx: int
-	) -> tuple[torch.Tensor, torch.Tensor]:
-		image = self.images[idx]
-		label = self.labels[idx]
-
-		if self.transform:
-			image = self.transform(image)
-
-		return image, label
+    def __len__(self):
+        return len(self.labels)
 
 
-class Galaxy10DataModule(pl.LightningDataModule):
-	"""LigntningDataModule to manage data in Pytorch Lightning."""
+def _download_split_and_load_data(
+    batch_size=BATCH_SIZE, 
+    test_split=TEST_SPLIT, 
+    val_split=VAL_SPLIT,
+    train_transform=None,
+    test_transform=None, 
+    val_transform=None
+):
+    """Helper function that downloads Galaxy10 dataset, performs train, test,
+    and validation splitting, and loads the data into a PyTorch DataLoader.
 
-	def __init__(
-		self,
-		batch_size: int = 8,
-		val_split: float = 0.1,
-		test_split: float = 0.1,
-		seed: int = 42,
-		num_workers: int = 0,
-		train_transform: Callable = None, 
-		val_transform: Callable = None,
-		test_transform: Callable = None,
-	) -> None:
-		super().__init__()
-		self.batch_size = batch_size
-		self.val_split = val_split
-		self.test_split = test_split
-		self.seed = seed
-		self.num_workers = num_workers
+    Returns
+    -------
+    torch.DataLoader
+        Train DataLoader
 
-		self.train_transform = train_transform or transforms.ToTensor()
-		self.val_transform = val_transform or transforms.ToTensor()
-		self.test_transform = test_transform or transforms.ToTensor()
+    torch.DataLoader
+        Valid DataLoader
 
-		self.train_dataset = None
-		self.val_dataset = None
-		self.test_dataset = None
+    torch.DataLoader
+        Test DataLoader
+    """
 
-	def prepare_data(self) -> None:
-		# Download the data, if needed
-		_ = load_galaxy10()
+    # Download the data
+    ## Loads the images and labels data as numpy.ndarrays
+    images, labels = load_galaxy10()
 
-	def setup(
-		self,
-		stage: str = None
-	) -> None:
-		# Load the data
-		images, labels = load_galaxy10()
-		images = torch.from_numpy(images).float() / 255.0
-		labels = torch.from_numpy(labels).long()
+    # Shuffle data before splitting into training, validation and testing sets
+    tmp = list(zip(images, labels))
+    random.shuffle(tmp)
+    images, labels = zip(*tmp)
 
-		# Split the data
-		total_size = len(images)
-		val_size = int(total_size * self.val_split)
-		test_size = int(total_size * self.test_split)
-		train_size = total_size - val_size - test_size
+    del tmp  # free up memory!
 
-		train_data, val_data, test_data = random_split(
-			list(zip(images, labels)),
-			lengths=[train_size, val_size, test_size],
-			generator=torch.Generator().manual_seed(self.seed)
-		)
+    total_size = len(images)
+    test_size = int(total_size * test_split)
+    val_size = int(total_size * val_split)
+    train_size = total_size - test_size - val_size
 
-		# Initialize train, test and valid dataset objects
-		self.train_dataset = Galaxy10Dataset(
-			images=torch.stack([x[0] for x in train_data]), 
-			labels=torch.stack([x[1] for x in train_data]), 
-			transform=self.train_transform
-		)
-		self.val_dataset = Galaxy10Dataset(
-			images=torch.stack([x[0] for x in val_data]), 
-			labels=torch.stack([x[1] for x in val_data]), 
-			transform=self.val_transform
-		)
-		self.test_dataset = Galaxy10Dataset(
-			images=torch.stack([x[0] for x in test_data]), 
-			labels=torch.stack([x[1] for x in test_data]), 
-			transform=self.test_transform
-		)
+    train_data = [
+        images[:train_size], 
+        labels[:train_size]
+    ]
+    val_data = [
+        images[train_size:train_size+val_size], 
+        labels[train_size:train_size+val_size]
+    ]
+    test_data = [
+        images[train_size+val_size:], 
+        labels[train_size+val_size:]
+    ]
 
-	def train_dataloader(self) -> DataLoader:
-		return DataLoader(
-			self.train_dataset,
-			batch_size=self.batch_size,
-			shuffle=True,
-			num_workers=self.num_workers,
-			pin_memory=True
-		) 
+    del images, labels  # free up memory!
 
-	def val_dataloader(self) -> DataLoader:
-		return DataLoader(
-			self.val_dataset,
-			batch_size=self.batch_size,
-			shuffle=False,
-			num_workers=self.num_workers,
-			pin_memory=True
-		)
+    train_ds = Galaxy10Dataset(*train_data, train_transform)
+    val_ds = Galaxy10Dataset(*val_data, val_transform)
+    test_ds = Galaxy10Dataset(*test_data, test_transform)
 
-	def test_dataloader(self) -> DataLoader:
-		return DataLoader(
-			self.test_dataset,
-			batch_size=self.batch_size,
-			shuffle=False,
-			num_workers=self.num_workers,
-			pin_memory=True
-		)
+    train_dl = DataLoader(train_ds, batch_size=batch_size)
+    val_dl = DataLoader(val_ds, batch_size=batch_size)
+    test_dl = DataLoader(test_ds, batch_size=batch_size)
+
+    return train_dl, val_dl, test_dl

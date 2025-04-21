@@ -71,7 +71,7 @@ class LitModule(pl.LightningModule):
     def validation_step(self, batch: torch.Tensor, batch_idx: int) -> torch.Tensor:
         return self._shared_step(batch, stage="val")
     
-    def testing_step(self, batch: torch.Tensor, batch_idx: int) -> torch.Tensor:
+    def test_step(self, batch: torch.Tensor, batch_idx: int) -> torch.Tensor:
         return self._shared_step(batch, stage="test")
 
     def configure_optimizers(self) -> torch.optim.Optimizer:

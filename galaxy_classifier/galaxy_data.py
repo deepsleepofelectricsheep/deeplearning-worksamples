@@ -28,6 +28,7 @@ TEST_SPLIT = 0.1
 VAL_SPLIT = 0.1
 CROP_SIZE = 224
 VIT_PRETRAINED_MODEL_NAME = "facebook/dino-vits16"
+RANDOM_SEED = 42
 
 
 class Galaxy10Dataset(Dataset):
@@ -77,6 +78,7 @@ class Galaxy10DataModule(pl.LightningDataModule):
         self.batch_size = self.args.get("batch_size", BATCH_SIZE)
         self.test_split = self.args.get("test_split", TEST_SPLIT)
         self.val_split = self.args.get("val_split", VAL_SPLIT)
+        self.random_seed = self.args.get("random_seed", RANDOM_SEED)
         vit_pretrained_model_name = self.args.get("vit_pretrained_model_name", VIT_PRETRAINED_MODEL_NAME) # argument defined in LitModel
 
         # Default ViTImageProcessor can be overwritten by passing transformations as arguments
@@ -89,6 +91,7 @@ class Galaxy10DataModule(pl.LightningDataModule):
         parser.add_argument("--batch_size", type=int, default=BATCH_SIZE)
         parser.add_argument("--test_split", type=float, default=TEST_SPLIT)
         parser.add_argument("--val_split", type=float, default=VAL_SPLIT)
+        parser.add_argument("--random_seed", type=int, default=RANDOM_SEED)
 
     def setup(self, stage: str):
         # Download the data
@@ -96,6 +99,7 @@ class Galaxy10DataModule(pl.LightningDataModule):
 
         # Shuffle data before splitting
         tmp = list(zip(images, labels))
+        random.seed(self.random_seed)
         random.shuffle(tmp)
         images, labels = zip(*tmp)
         del tmp  # free memory

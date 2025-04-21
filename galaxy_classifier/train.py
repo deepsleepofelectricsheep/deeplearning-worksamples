@@ -72,6 +72,7 @@ def main():
 	model = DinoLinearClassifier(args=args)
 	if args.load_checkpoint is not None:
 		lit_model = LitModule.load_from_checkpoint(args.load_checkpoint, args=args, model=model)
+		print(f"Model successfully loaded from checkpoint {args.load_checkpoint}")
 	else: 
 		lit_model = LitModule(args=args, model=model)
 
@@ -88,6 +89,7 @@ def main():
 	)
 
 	trainer.fit(lit_model, datamodule=data)
+	trainer.test(lit_model, datamodule=data)
 
 
 if __name__ == "__main__":

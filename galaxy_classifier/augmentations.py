@@ -1,2 +1,2 @@
-"""Data augmentation method for Astroformer model."""
-from torchvision.transform
+"""Data custom augmentation methods."""
+from transformers import ViTImageProcessor

@@ -89,7 +89,6 @@ class Galaxy10DataModule(pl.LightningDataModule):
         parser.add_argument("--batch_size", type=int, default=BATCH_SIZE)
         parser.add_argument("--test_split", type=float, default=TEST_SPLIT)
         parser.add_argument("--val_split", type=float, default=VAL_SPLIT)
-        parser.add_argument("--vit_pretrained_model_name", type=str, default=VIT_PRETRAINED_MODEL_NAME)
 
     def setup(self, stage: str):
         # Download the data

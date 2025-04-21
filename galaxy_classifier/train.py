@@ -11,12 +11,14 @@ import warnings
 from pytorch_lightning.utilities.warnings import PossibleUserWarning
 
 
+torch.set_float32_matmul_precision("medium")
 warnings.filterwarnings("ignore", category=PossibleUserWarning)
 
 
 MAX_EPOCHS = 100
-OVERFIT_BATCHES = 1
-LIMIT_VAL_BATCHES = 0.0
+OVERFIT_BATCHES = 0.0
+LIMIT_VAL_BATCHES = None
+LIMIT_TEST_BATCHES = None
 PRECISION = "32-true"
 
 
@@ -32,6 +34,7 @@ def _setup_parser():
 	trainer_group.add_argument("--max_epochs", type=int, default=MAX_EPOCHS)
 	trainer_group.add_argument("--overfit_batches", type=float, default=OVERFIT_BATCHES)
 	trainer_group.add_argument("--limit_val_batches", type=float, default=LIMIT_VAL_BATCHES)
+	trainer_group.add_argument("--limit_test_batches", type=float, default=LIMIT_TEST_BATCHES)
 	trainer_group.add_argument("--precision", type=str, default=PRECISION)
 
 	# Add data and model specific arguments
@@ -80,6 +83,7 @@ def main():
 		max_epochs=args.max_epochs, 
 		overfit_batches=args.overfit_batches, 
 		limit_val_batches=args.limit_val_batches, 
+		limit_test_batches=args.limit_test_batches,
 		precision=args.precision
 	)
 

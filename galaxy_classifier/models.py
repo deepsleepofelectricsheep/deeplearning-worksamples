@@ -12,6 +12,7 @@ import pytorch_lightning as pl
 NUM_CLASSES = 10
 LR = 3e-4
 VIT_PRETRAINED_MODEL_NAME = "facebook/dino-vits16"
+LINEAR_CLASSIFIER_HIDDEN_SIZE = 512
 	
 
 class DinoLinearClassifier(torch.nn.Module):
@@ -20,21 +21,25 @@ class DinoLinearClassifier(torch.nn.Module):
         self.args = vars(args) if args is not None else {}
         num_classes = self.args.get("num_classes", NUM_CLASSES)
         vit_pretrained_model_name = self.args.get("vit_pretrained_model_name", VIT_PRETRAINED_MODEL_NAME)
+        linear_classifier_hidden_size = self.args.get("linear_classifier_hidden_size", LINEAR_CLASSIFIER_HIDDEN_SIZE)
         self.feature_extractor = ViTModel.from_pretrained(vit_pretrained_model_name)
-        self.linear = torch.nn.Linear(self.feature_extractor.config.hidden_size, num_classes)
+        self.hidden_layer = torch.nn.Linear(self.feature_extractor.config.hidden_size, linear_classifier_hidden_size)
+        self.output_layer = torch.nn.Linear(linear_classifier_hidden_size, num_classes)
 
         for param in self.feature_extractor.parameters():
             param.requires_grad = False
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         features = self.feature_extractor(inputs)["last_hidden_state"][:, 0]
-        output = self.linear(features)
+        output = self.hidden_layer(features)
+        output = self.output_layer(output)
         return output
 
     @staticmethod
     def add_to_argparse(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         parser.add_argument("--num_classes", type=int, default=NUM_CLASSES)
         parser.add_argument("--vit_pretrained_model_name", type=str, default=VIT_PRETRAINED_MODEL_NAME)
+        parser.add_argument("--linear_classifier_hidden_size", type=int, default=LINEAR_CLASSIFIER_HIDDEN_SIZE)
         return parser
 	
 

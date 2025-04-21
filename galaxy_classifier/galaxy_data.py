@@ -77,7 +77,7 @@ class Galaxy10DataModule(pl.LightningDataModule):
         self.batch_size = self.args.get("batch_size", BATCH_SIZE)
         self.test_split = self.args.get("test_split", TEST_SPLIT)
         self.val_split = self.args.get("val_split", VAL_SPLIT)
-        vit_pretrained_model_name = self.args.get("vit_pretrained_model_name", VIT_PRETRAINED_MODEL_NAME)
+        vit_pretrained_model_name = self.args.get("vit_pretrained_model_name", VIT_PRETRAINED_MODEL_NAME) # argument defined in LitModel
 
         # Default ViTImageProcessor can be overwritten by passing transformations as arguments
         self.train_transform = train_transform if train_transform is not None else ViTImageProcessor.from_pretrained(vit_pretrained_model_name)

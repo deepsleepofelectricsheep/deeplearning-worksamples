@@ -5,7 +5,7 @@ import pytorch_lightning as pl
 import torch
 
 from galaxy_data import Galaxy10DataModule
-from models import LitModule, DinoLinearClassifier
+from models import ViTClassifierHead, ViTBackbone, BaseViTLitModule
 
 import warnings
 from pytorch_lightning.utilities.warnings import PossibleUserWarning
@@ -42,10 +42,11 @@ def _setup_parser():
 	Galaxy10DataModule.add_to_argparse(data_group)
 
 	model_group = parser.add_argument_group("Model Args")
-	DinoLinearClassifier.add_to_argparse(model_group)
+	ViTClassifierHead.add_to_argparse(model_group)
+	ViTBackbone.add_to_argparse(model_group)
 
 	lit_model_group = parser.add_argument_group("LitModel Args")
-	LitModule.add_to_argparse(lit_model_group)
+	BaseViTLitModule.add_to_argparse(lit_model_group)
 
 	parser.add_argument("--help", "-h", action="help")
 	return parser
@@ -69,12 +70,19 @@ def main():
 	args = parser.parse_args()
 
 	# Load LightningModule
-	model = DinoLinearClassifier(args=args)
+	backbone_model = ViTBackbone(args=args)
+	head_model = ViTClassifierHead(backbone_config=backbone_model.config, args=args)
+
 	if args.load_checkpoint is not None:
-		lit_model = LitModule.load_from_checkpoint(args.load_checkpoint, args=args, model=model)
+		lit_model = BaseViTLitModule.load_from_checkpoint(
+			args.load_checkpoint, 
+			args=args, 
+			head_model=head_model, 
+			backbone_model=backbone_model
+		)
 		print(f"Model successfully loaded from checkpoint {args.load_checkpoint}")
 	else: 
-		lit_model = LitModule(args=args, model=model)
+		lit_model = BaseViTLitModule(args=args, head_model=head_model, backbone_model=backbone_model)
 
 	# Load LightningDataModule
 	data = Galaxy10DataModule(args=args)

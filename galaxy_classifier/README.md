@@ -1,1 +1,1 @@
-Galaxy classification with DINO
+Training Neural Network Models for Galaxy10 classification problem. 

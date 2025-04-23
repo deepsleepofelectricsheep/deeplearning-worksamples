@@ -75,8 +75,8 @@ class ViTBackbone(nn.Module):
     @staticmethod
     def add_to_argparse(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         parser.add_argument("--vit_pretrained_model_name", type=str, default=VIT_PRETRAINED_MODEL_NAME)
-        parser.add_argument("--freeze_backbone", type=bool, default=FREEZE_BACKBONE)
-        parser.add_argument("--return_mean_token_embeddings", type=bool, default=RETURN_MEAN_TOKEN_EMBEDDINGS)
+        parser.add_argument("--freeze_backbone", action="store_true", default=FREEZE_BACKBONE)
+        parser.add_argument("--return_mean_token_embeddings", action="store_true", default=RETURN_MEAN_TOKEN_EMBEDDINGS)
         return parser
     
 
@@ -101,8 +101,8 @@ class BaseViTLitModule(pl.LightningModule):
         outs = self(inputs)
         loss = self.loss_fn(outs, targets)
         accuracy = self.accuracy_fn(outs, targets)
-        self.log(f"{stage}_loss", loss, on_epoch=True, prog_bar=True, on_step=False)
-        self.log(f"{stage}_accuracy", accuracy, on_epoch=True, prog_bar=True, on_step=False)
+        self.log(f"{stage}/loss", loss, on_epoch=True, prog_bar=True, on_step=False)
+        self.log(f"{stage}/accuracy", accuracy, on_epoch=True, prog_bar=True, on_step=False)
         return loss
 
     def training_step(self, batch: torch.Tensor, batch_idx: int) -> torch.Tensor:

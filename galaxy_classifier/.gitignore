@@ -2,4 +2,3 @@
 .vscode/
 lightning_logs/
 __pycache__
-.gitignore

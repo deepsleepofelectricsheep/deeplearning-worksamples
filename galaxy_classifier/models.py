@@ -1,12 +1,10 @@
 """PyTorch NN models for galaxy classification task."""
 import argparse
-
 import torch
 import torch.nn as nn
 from torchmetrics.classification import Accuracy
 from transformers import ViTModel
 from transformers.models.vit.configuration_vit import ViTConfig
-
 import pytorch_lightning as pl
 
 
@@ -19,6 +17,10 @@ HIDDEN_SIZE = 128
 P_DROPOUT = 0.1
 FREEZE_BACKBONE = True
 RETURN_MEAN_TOKEN_EMBEDDINGS = False
+OPTIMIZER = "Adam"
+LOSS = "cross_entropy"
+ONE_CYCLE_MAX_LR = None
+ONE_CYCLE_TOTAL_STEPS = 100
 
 
 class ViTClassifierHead(torch.nn.Module):
@@ -57,12 +59,14 @@ class ViTBackbone(nn.Module):
     def __init__(self, args: argparse.Namespace = None) -> None:
         super().__init__()
         self.args = vars(args) if args is not None else {}
+
         self.vit_pretrained_model_name = self.args.get("vit_pretrained_model_name", VIT_PRETRAINED_MODEL_NAME)
-        self.freeze_backbone = self.args.get("freeze_backbone", FREEZE_BACKBONE)
-        self.return_mean_token_embeddings = self.args.get("return_mean_token_embeddings", RETURN_MEAN_TOKEN_EMBEDDINGS)
         self.model = ViTModel.from_pretrained(self.vit_pretrained_model_name)
         self.config = self.model.config.to_dict()
 
+        self.return_mean_token_embeddings = self.args.get("return_mean_token_embeddings", RETURN_MEAN_TOKEN_EMBEDDINGS)
+
+        self.freeze_backbone = self.args.get("freeze_backbone", FREEZE_BACKBONE)
         if self.freeze_backbone:
             for param in self.model.parameters():
                 param.requires_grad = False
@@ -86,10 +90,20 @@ class BaseViTLitModule(pl.LightningModule):
         self.head_model = head_model
         self.backbone_model = backbone_model
         self.args = vars(args) if args is not None else {}
-        self.num_classes = self.args.get("num_classes", NUM_CLASSES)
+
+        num_classes = self.args.get("num_classes", NUM_CLASSES)
+        self.accuracy_fn = Accuracy(task="multiclass", num_classes=num_classes)
+
+        optimizer = self.args.get("optimizer", OPTIMIZER)
+        self.optimizer_class = getattr(torch.optim, optimizer)
+
         self.lr = self.args.get("lr", LR)
-        self.loss_fn = torch.nn.CrossEntropyLoss()
-        self.accuracy_fn = Accuracy(task="multiclass", num_classes=self.num_classes)
+
+        self.one_cycle_max_lr = self.args.get("one_cycle_max_lr", ONE_CYCLE_MAX_LR)
+        self.one_cycle_total_steps = self.args.get("one_cycle_total_steps", ONE_CYCLE_TOTAL_STEPS)
+
+        loss = self.args.get("--loss", LOSS)
+        self.loss_fn = getattr(torch.nn.functional, loss)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         features = self.backbone_model(x)
@@ -115,9 +129,19 @@ class BaseViTLitModule(pl.LightningModule):
         return self._shared_step(batch, stage="test")
 
     def configure_optimizers(self) -> torch.optim.Optimizer:
-        return torch.optim.AdamW(filter(lambda p: p.requires_grad, self.parameters()), lr=self.lr)
+        optimizer = self.optimizer_class(filter(lambda p: p.requires_grad, self.parameters()), lr=self.lr)
+        if self.one_cycle_max_lr is None:
+            return optimizer
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer=optimizer, max_lr=self.one_cycle_max_lr, total_steps=self.one_cycle_total_steps
+        )
+        return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val/loss"}
 
     @staticmethod
     def add_to_argparse(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         parser.add_argument("--lr", type=float, default=LR)
+        parser.add_argument("--optimizer", type=str, default=OPTIMIZER)
+        parser.add_argument("--one_cycle_max_lr", type=float, default=ONE_CYCLE_MAX_LR)
+        parser.add_argument("--one_cycle_total_steps", type=int, default=ONE_CYCLE_TOTAL_STEPS)
+        parser.add_argument("--loss", type=str, default=LOSS)
         return parser

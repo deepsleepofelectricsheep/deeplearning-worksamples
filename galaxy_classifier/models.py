@@ -5,6 +5,7 @@ import torch.nn as nn
 from torchmetrics.classification import Accuracy
 from transformers import ViTModel
 from transformers.models.vit.configuration_vit import ViTConfig
+from torchvision.transforms.v2 import MixUp
 import pytorch_lightning as pl
 
 
@@ -20,7 +21,9 @@ RETURN_MEAN_TOKEN_EMBEDDINGS = False
 OPTIMIZER = "Adam"
 LOSS = "cross_entropy"
 ONE_CYCLE_MAX_LR = None
-ONE_CYCLE_TOTAL_STEPS = 100
+MIXUP = False
+MIXUP_ALPHA = 0.4
+LABEL_SMOOTHING = 0.0
 
 
 class ViTClassifierHead(torch.nn.Module):
@@ -100,10 +103,15 @@ class BaseViTLitModule(pl.LightningModule):
         self.lr = self.args.get("lr", LR)
 
         self.one_cycle_max_lr = self.args.get("one_cycle_max_lr", ONE_CYCLE_MAX_LR)
-        self.one_cycle_total_steps = self.args.get("one_cycle_total_steps", ONE_CYCLE_TOTAL_STEPS)
 
-        loss = self.args.get("--loss", LOSS)
+        loss = self.args.get("loss", LOSS)
         self.loss_fn = getattr(torch.nn.functional, loss)
+
+        num_classes = self.args.get("num_classes", NUM_CLASSES)
+        mixup_alpha = self.args.get("mixup_alpha", MIXUP_ALPHA)
+        self.mixup = self.args.get("mixup", MIXUP)
+        if self.mixup:
+            self.mixup_fn = MixUp(num_classes=num_classes, alpha=mixup_alpha)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         features = self.backbone_model(x)
@@ -112,9 +120,16 @@ class BaseViTLitModule(pl.LightningModule):
     
     def _shared_step(self, batch: torch.Tensor, stage: str) -> torch.Tensor:
         inputs, targets = batch
-        outs = self(inputs)
-        loss = self.loss_fn(outs, targets)
-        accuracy = self.accuracy_fn(outs, targets)
+        if stage == "train" and self.mixup:
+            original_targets = targets
+            inputs, soft_targets = self.mixup_fn(inputs, targets.long())
+            outs = self(inputs)
+            loss = self.loss_fn(outs, soft_targets)
+            accuracy = self.accuracy_fn(outs, original_targets)
+        else:
+            outs = self(inputs)
+            loss = self.loss_fn(outs, targets)
+            accuracy = self.accuracy_fn(outs, targets)
         self.log(f"{stage}/loss", loss, on_epoch=True, prog_bar=True, on_step=False)
         self.log(f"{stage}/accuracy", accuracy, on_epoch=True, prog_bar=True, on_step=False)
         return loss
@@ -132,9 +147,15 @@ class BaseViTLitModule(pl.LightningModule):
         optimizer = self.optimizer_class(filter(lambda p: p.requires_grad, self.parameters()), lr=self.lr)
         if self.one_cycle_max_lr is None:
             return optimizer
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(
-            optimizer=optimizer, max_lr=self.one_cycle_max_lr, total_steps=self.one_cycle_total_steps
-        )
+        scheduler = {
+            "scheduler": torch.optim.lr_scheduler.OneCycleLR(
+                optimizer=optimizer, 
+                max_lr=self.one_cycle_max_lr, 
+                total_steps=self.trainer.estimated_stepping_batches
+            ),
+            "interval": "step",
+            "frequency": 1
+        }
         return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "val/loss"}
 
     @staticmethod
@@ -142,6 +163,8 @@ class BaseViTLitModule(pl.LightningModule):
         parser.add_argument("--lr", type=float, default=LR)
         parser.add_argument("--optimizer", type=str, default=OPTIMIZER)
         parser.add_argument("--one_cycle_max_lr", type=float, default=ONE_CYCLE_MAX_LR)
-        parser.add_argument("--one_cycle_total_steps", type=int, default=ONE_CYCLE_TOTAL_STEPS)
         parser.add_argument("--loss", type=str, default=LOSS)
+        parser.add_argument("--mixup", action="store_true", default=MIXUP)
+        parser.add_argument("--mixup_alpha", type=float, default=MIXUP_ALPHA)
+        parser.add_argument("--label_smoothing", type=float, default=LABEL_SMOOTHING)
         return parser

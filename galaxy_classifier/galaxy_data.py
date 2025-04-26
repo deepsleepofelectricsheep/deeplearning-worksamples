@@ -15,10 +15,12 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 import pytorch_lightning as pl
-from torchvision.transforms import ToTensor, Compose, RandomHorizontalFlip, Resize
+from torchvision.transforms import ToTensor, Compose, RandomHorizontalFlip, Resize, RandAugment
 from transformers import ViTImageProcessor
 
 from astroNN.datasets import load_galaxy10
+
+from sklearn.model_selection import train_test_split
 
 from PIL.Image import fromarray
 
@@ -52,7 +54,8 @@ class Galaxy10Dataset(Dataset):
         label = self.labels[idx]
 
         if self.stage == "train":
-            image = RandomHorizontalFlip()(image)
+            augment = Compose([RandomHorizontalFlip(), RandAugment()])
+            image = augment(image)
 
         if isinstance(self.transform, ViTImageProcessor):
             image = self.transform(images=image, return_tensors="pt")["pixel_values"].squeeze(0)
@@ -97,27 +100,24 @@ class Galaxy10DataModule(pl.LightningDataModule):
         # Download the data
         images, labels = load_galaxy10()
 
-        # Shuffle data before splitting
-        tmp = list(zip(images, labels))
-        random.seed(self.random_seed)
-        random.shuffle(tmp)
-        images, labels = zip(*tmp)
-        del tmp  # free memory
+        # Shuffle split with stratification
+        train_idx, temp_idx = train_test_split(
+            np.arange(len(labels)),
+            test_size=self.test_split+self.val_split,
+            stratify=labels,
+            random_state=self.random_seed
+        )
 
-        total_size = len(images)
-        test_size = int(total_size * self.test_split)
-        val_size = int(total_size * self.val_split)
-        train_size = total_size - test_size - val_size
+        val_idx, test_idx = train_test_split(
+            temp_idx,
+            test_size=self.test_split/(self.test_split+self.val_split),
+            stratify=labels[temp_idx],
+            random_state=self.random_seed
+        )
 
-        train_data = [images[:train_size], labels[:train_size]]
-        val_data = [images[train_size:train_size + val_size], labels[train_size:train_size + val_size]]
-        test_data = [images[train_size + val_size:], labels[train_size + val_size:]]
-
-        del images, labels  # free memory
-
-        self.train_ds = Galaxy10Dataset(*train_data, transform=self.train_transform, stage="train")
-        self.val_ds = Galaxy10Dataset(*val_data, transform=self.val_transform, stage="val")
-        self.test_ds = Galaxy10Dataset(*test_data, transform=self.test_transform, stage="test")
+        self.train_ds = Galaxy10Dataset(images[train_idx], labels[train_idx], transform=self.train_transform, stage="train")
+        self.val_ds = Galaxy10Dataset(images[val_idx], labels[val_idx], transform=self.val_transform, stage="val")
+        self.test_ds = Galaxy10Dataset(images[test_idx], labels[test_idx], transform=self.test_transform, stage="test")
 
     def train_dataloader(self):
         return DataLoader(self.train_ds, batch_size=self.batch_size)

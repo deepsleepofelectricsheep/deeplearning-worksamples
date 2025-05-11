@@ -1,129 +1,148 @@
-"""Initialize, and train, test and validate model on galaxy10 dataset."""
-import argparse
-
-import pytorch_lightning as pl
 import torch
-
-from galaxy_data import Galaxy10DataModule
-from models import ViTClassifierHead, ViTBackbone, BaseViTLitModule
-from callbacks import LearningRateMonitor
-
-import warnings
-from pytorch_lightning.utilities.warnings import PossibleUserWarning
+from torch import nn
+from torch import optim
+from torch.optim import lr_scheduler
+from typing import Callable
+from torch.utils import data
 
 
-torch.set_float32_matmul_precision("medium")
-warnings.filterwarnings("ignore", category=PossibleUserWarning)
+def train(
+    model: Callable[[torch.Tensor], torch.Tensor], 
+    data_loaders: dict[str, data.DataLoader],
+    n_epochs: int = 5,
+    batch_size: int = 16,
+    loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = None, 
+    optimizer: optim.Optimizer = None,
+    scheduler: lr_scheduler._LRScheduler = None, 
+) -> dict[str, list]:
+    """Trains provided model for specified number of epochs, on provided 
+    train and val dataloaders, given provided loss function and optimizer.
+
+    Args:
+        model: 
+            Provided classification model.
+        n_epochs: 
+            Number of epochs.
+        loss_fn: 
+            (optional) Loss function that takes two tensors as inputs, and returns
+            a tensor.
+        data_loaders: 
+            Dictionary with values 'train' and 'val' with corresponding 
+            data loaders.
+        optimizer: 
+            (optional) PyTorch Optimizer class instance.
+        scheduler:
+            (optional) PyTorch _LRScheduler instance.
+        batch_size: 
+            Number of samples in a batch in the train and val data 
+            loaders.
+    """
+    if optimizer == None:
+        optimizer = optim.AdamW(model.parameters(), lr=1e-3)
+
+    if scheduler == None:
+        scheduler = lr_scheduler.CosineAnnealingLR(
+            optimizer, 
+            T_max=n_epochs, 
+            eta_min=1e-5
+        )
+
+    if loss_fn == None: 
+        loss_fn = nn.CrossEntropyLoss(label_smoothing=0.1)
+
+    history = {
+        "train_loss": [0] * n_epochs,
+        "train_accuracy": [0] * n_epochs,
+        "val_loss": [0] * n_epochs,
+        "val_accuracy": [0] * n_epochs
+    }
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+
+    for epoch in range(n_epochs):
+        model.train()
+        for batch in data_loaders["train"]:
+            images, labels = batch["image"], batch["label"]
+            images, labels = images.to(device), labels.to(device)
+            pred = model(images)
+            loss = loss_fn(pred, labels)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            is_correct = (torch.argmax(pred, dim=1) == labels).float().mean()
+            history["train_accuracy"][epoch] += is_correct
+            history["train_loss"][epoch] += loss.item()
+
+        scheduler.step()
+
+        history["train_accuracy"][epoch] /= len(data_loaders["train"].dataset)/batch_size
+        history["train_loss"][epoch] /= len(data_loaders["train"].dataset)/batch_size
+
+        print(
+            f"Epoch [{epoch+1}/{n_epochs}]: "
+            f"Train Loss = {history['train_loss'][epoch]:0.4f}; "
+            f"Train Acc. = {history['train_accuracy'][epoch]:0.4f}"
+        )
+
+        model.eval()
+        with torch.no_grad():
+            for batch in data_loaders["val"]:
+                images, labels = batch["image"], batch["label"]
+                images, labels = images.to(device), labels.to(device)
+                pred = model(images)
+                loss = loss_fn(pred, labels)
+
+                is_correct = (torch.argmax(pred, dim=1) == labels).float().mean()
+                history["val_accuracy"][epoch] += is_correct
+                history["val_loss"][epoch] += loss.item()  
+
+        history["val_accuracy"][epoch] /= len(data_loaders["val"].dataset)/batch_size
+        history["val_loss"][epoch] /= len(data_loaders["val"].dataset)/batch_size
+
+        print(
+            f"Epoch [{epoch+1}/{n_epochs}]: "
+            f"Val Loss = {history['val_loss'][epoch]:0.4f}; "
+            f"Val Acc. = {history['val_accuracy'][epoch]:0.4f}"
+        )
+
+        print()
+
+    return history
 
 
-MAX_EPOCHS = 100
-OVERFIT_BATCHES = 0.0
-LIMIT_TRAIN_BATCHES = None
-LIMIT_VAL_BATCHES = None
-LIMIT_TEST_BATCHES = None
-PRECISION = "32-true"
-TEST = False
-CHECK_VAL_EVERY_N_EPOCHS = 3
+def predict(
+    model: nn.Module,
+    data_loader: data.DataLoader
+) -> tuple[list, list]:
+    """Generates predictions for all samples in provided
+    dataloader.
 
+    Args:
+        model:
+            PyTorch model to generate predictions
+        data_loader:
+            PyTorch DataLoader instance with samples for
+            prediction generation.
 
+    Returns:
+        Tuple consisting of two lists, the predicted, and 
+        the ground truth labels.
+    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
 
-def _setup_parser():
-	"""Set up Python's ArgumentParser with data, model, trainer, and other arguments."""
-	parser = argparse.ArgumentParser(add_help=False)
+    y = []
+    y_hat = []
 
-	# Add basic arguments
-	parser.add_argument("--load_checkpoint", type=str, default=None, help="If passed, loads a model from the provided path.")	
+    model.eval()
+    for batch in data_loader:
+        images, labels = batch["image"], batch["label"]
+        images, labels = images.to(device), labels.to(device)
+        preds = model(images).argmax(dim=1)
 
-	# Add Trainer specific arguments, such as --max_epochs, --overfit_batches, --limit_val_batches and --precision
-	trainer_group = parser.add_argument_group("Trainer Args")
-	trainer_group.add_argument("--max_epochs", type=int, default=MAX_EPOCHS)
-	trainer_group.add_argument("--overfit_batches", type=float, default=OVERFIT_BATCHES)
-	trainer_group.add_argument("--limit_val_batches", type=float, default=LIMIT_VAL_BATCHES)
-	trainer_group.add_argument("--limit_test_batches", type=float, default=LIMIT_TEST_BATCHES)
-	trainer_group.add_argument("--limit_train_batches", type=float, default=LIMIT_TRAIN_BATCHES)
-	trainer_group.add_argument("--precision", type=str, default=PRECISION)
-	trainer_group.add_argument("--test", action="store_true", default=TEST)
-	trainer_group.add_argument("--check_val_every_n_epochs", type=int, default=CHECK_VAL_EVERY_N_EPOCHS)
+        y.extend(labels.tolist())
+        y_hat.extend(preds.tolist())
 
-	# Add data and model specific arguments
-	data_group = parser.add_argument_group("Data Args")
-	Galaxy10DataModule.add_to_argparse(data_group)
-
-	model_group = parser.add_argument_group("Model Args")
-	ViTClassifierHead.add_to_argparse(model_group)
-	ViTBackbone.add_to_argparse(model_group)
-
-	lit_model_group = parser.add_argument_group("LitModel Args")
-	BaseViTLitModule.add_to_argparse(lit_model_group)
-
-	parser.add_argument("--help", "-h", action="help")
-	return parser
-
-
-def main():
-	"""
-	Run an experiment.
-	
-	Sample command:
-	```
-	python train.py --overfit_batches 1 --batch_size 8 --max_epochs 10
-	```
-
-	For basic help documentation, run the command
-    ```
-    python training/run_experiment.py --help
-    ```
-	"""
-	parser = _setup_parser()
-	args = parser.parse_args()
-
-	# Load LightningModule
-	backbone_model = ViTBackbone(args=args)
-	head_model = ViTClassifierHead(backbone_config=backbone_model.config, args=args)
-
-	if args.load_checkpoint is not None:
-		lit_model = BaseViTLitModule.load_from_checkpoint(
-			args.load_checkpoint, 
-			args=args, 
-			head_model=head_model, 
-			backbone_model=backbone_model
-		)
-		print(f"Model successfully loaded from checkpoint {args.load_checkpoint}")
-	else: 
-		lit_model = BaseViTLitModule(args=args, head_model=head_model, backbone_model=backbone_model)
-
-	# Load LightningDataModule
-	data = Galaxy10DataModule(args=args)
-
-	# Define custom callbacks for logging
-	filename_format = "epoch={epoch:04d}-val.loss={val/loss:.3f}"
-	checkpoint_callback = pl.callbacks.ModelCheckpoint(
-		save_top_k=3,
-		monitor="val/loss", 
-		filename=filename_format,
-		mode="min",
-		auto_insert_metric_name=False,
-		every_n_epochs=args.check_val_every_n_epochs 
-	)
-	summary_callback = pl.callbacks.ModelSummary(max_depth=2)
-	callbacks = [checkpoint_callback, summary_callback, LearningRateMonitor()]
-
-	# Initialize trainer
-	trainer = pl.Trainer(
-		max_epochs=args.max_epochs, 
-		overfit_batches=args.overfit_batches, 
-		limit_val_batches=args.limit_val_batches, 
-		limit_test_batches=args.limit_test_batches,
-		limit_train_batches=args.limit_train_batches,
-		precision=args.precision, 
-		callbacks=callbacks
-	)
-
-	trainer.fit(lit_model, datamodule=data)
-	
-	if args.test:
-		trainer.test(lit_model, datamodule=data)
-
-
-if __name__ == "__main__":
-	main()
+    return y_hat, y

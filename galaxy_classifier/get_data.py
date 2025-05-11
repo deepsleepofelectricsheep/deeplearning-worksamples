@@ -8,8 +8,8 @@ from PIL import Image
 
 
 def generate_train_val_test_splits(
-    test_size: float = 0.2,
-    val_size: float = 0.2,
+    test_size: float = 0.15,
+    val_size: float = 0.15,
     debug: bool = False,
     batch_size: int = 32
 ) -> dict[str, tuple[np.ndarray]]:

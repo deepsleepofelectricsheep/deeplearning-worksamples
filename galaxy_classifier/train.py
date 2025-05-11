@@ -4,16 +4,20 @@ from torch import optim
 from torch.optim import lr_scheduler
 from typing import Callable
 from torch.utils import data
+from torch.nn import utils
+from torchvision.transforms import v2
 
 
 def train(
     model: Callable[[torch.Tensor], torch.Tensor], 
     data_loaders: dict[str, data.DataLoader],
+    loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor], 
+    optimizer: optim.Optimizer,
+    scheduler: lr_scheduler._LRScheduler, 
     n_epochs: int = 5,
     batch_size: int = 16,
-    loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = None, 
-    optimizer: optim.Optimizer = None,
-    scheduler: lr_scheduler._LRScheduler = None, 
+    gradient_clip: float = 1.0,
+    num_classes: int = 10
 ) -> dict[str, list]:
     """Trains provided model for specified number of epochs, on provided 
     train and val dataloaders, given provided loss function and optimizer.
@@ -24,32 +28,24 @@ def train(
         n_epochs: 
             Number of epochs.
         loss_fn: 
-            (optional) Loss function that takes two tensors as inputs, and returns
+            Loss function that takes two tensors as inputs, and returns
             a tensor.
         data_loaders: 
             Dictionary with values 'train' and 'val' with corresponding 
             data loaders.
         optimizer: 
-            (optional) PyTorch Optimizer class instance.
+            PyTorch Optimizer class instance.
         scheduler:
-            (optional) PyTorch _LRScheduler instance.
+            PyTorch _LRScheduler instance.
         batch_size: 
             Number of samples in a batch in the train and val data 
             loaders.
+        gradient_clip:
+            Parameter to limit magnitude of gradients in backprop to prevent
+            exploding gradients.
+        num_classes:
+            Number of classes in the dataset.
     """
-    if optimizer == None:
-        optimizer = optim.AdamW(model.parameters(), lr=1e-3)
-
-    if scheduler == None:
-        scheduler = lr_scheduler.CosineAnnealingLR(
-            optimizer, 
-            T_max=n_epochs, 
-            eta_min=1e-5
-        )
-
-    if loss_fn == None: 
-        loss_fn = nn.CrossEntropyLoss(label_smoothing=0.1)
-
     history = {
         "train_loss": [0] * n_epochs,
         "train_accuracy": [0] * n_epochs,
@@ -60,19 +56,24 @@ def train(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
 
+    mixup = v2.MixUp(num_classes=num_classes, alpha=0.8) # Initialize Mixup augmentation
+
     for epoch in range(n_epochs):
         model.train()
         for batch in data_loaders["train"]:
             images, labels = batch["image"], batch["label"]
-            images, labels = images.to(device), labels.to(device)
+            images, labels = images.to(device), labels.to(device) 
+            images, labels = mixup(images, labels.long()) # Augment data
             pred = model(images)
             loss = loss_fn(pred, labels)
             optimizer.zero_grad()
             loss.backward()
+            if gradient_clip is not None:
+                utils.clip_grad_norm_(model.parameters(), gradient_clip) # Add gradient clip
             optimizer.step()
 
-            is_correct = (torch.argmax(pred, dim=1) == labels).float().mean()
-            history["train_accuracy"][epoch] += is_correct
+            is_correct = (torch.argmax(pred, dim=1) == torch.argmax(labels, dim=1)).float().mean()
+            history["train_accuracy"][epoch] += is_correct.item()
             history["train_loss"][epoch] += loss.item()
 
         scheduler.step()
@@ -95,7 +96,7 @@ def train(
                 loss = loss_fn(pred, labels)
 
                 is_correct = (torch.argmax(pred, dim=1) == labels).float().mean()
-                history["val_accuracy"][epoch] += is_correct
+                history["val_accuracy"][epoch] += is_correct.item()
                 history["val_loss"][epoch] += loss.item()  
 
         history["val_accuracy"][epoch] /= len(data_loaders["val"].dataset)/batch_size

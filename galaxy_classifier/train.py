@@ -16,11 +16,12 @@ def train(
     scheduler: lr_scheduler._LRScheduler, 
     n_epochs: int = 5,
     batch_size: int = 16,
-    gradient_clip: float = 1.0,
+    gradient_clip: float = None,
     num_classes: int = 10
 ) -> dict[str, list]:
     """Trains provided model for specified number of epochs, on provided 
     train and val dataloaders, given provided loss function and optimizer.
+    Applies MixUp augmentation with alpha of 0.8
 
     Args:
         model: 

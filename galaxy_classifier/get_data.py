@@ -1,20 +1,30 @@
-from astroNN import datasets
-from sklearn import model_selection
-import numpy as np
+# ML, DL and vision libraries
+import torch
 from torch.utils import data
 from torchvision import transforms
-import torch
-from PIL import Image 
+from sklearn import model_selection
+
+# Standard imports
+import numpy as np
+import os
+from os import path
+from PIL import Image
+
+# Required imports
+from astroNN import datasets
 
 
-def generate_train_val_test_splits(
-    test_size: float = 0.15,
-    val_size: float = 0.15,
-    debug: bool = False,
-    batch_size: int = 32
-) -> dict[str, tuple[np.ndarray]]:
-    """Download the Galaxy10 dataset, and create train, 
-    validation and test splits for model training.
+def generate_and_save_splits(
+    test_size: float = 0.1,
+    val_size: float = 0.1,
+    root: str = "data"    
+) -> None:
+    """Download the Galaxy10 dataset, create train, val
+    and test splits, and store the data in the provided
+    root directory. The train, val and test sets will be 
+    stored in separate sub directories, and each image 
+    will be stored as a separate file to enable lazy
+    loading during model training. 
 
     Args:
         test_size: 
@@ -23,17 +33,9 @@ def generate_train_val_test_splits(
         val_size: 
             The fraction of the total dataset tobe used 
             for model validation.
-        debug: 
-            If True only a subset of the train, val, and
-            test data will be returned.
-        batch_size: 
-            The number of samples to be returned per train,
-            val and test sets if debug is set to True.
-    
-    Returns:
-        A dictionary mapping the keys "train", "val" and
-        "test" to the corresponding data splits. Each row
-        is represented as a tuple of numpy ndarrays.
+        root:
+            The root directory where the data should be 
+            stored.
     """
 
     combined_size = test_size + val_size
@@ -60,16 +62,22 @@ def generate_train_val_test_splits(
         random_state=random_state
     )
 
-    if debug == True:
-        train_idx = train_idx[:batch_size]
-        val_idx = val_idx[:batch_size]
-        test_idx = test_idx[:batch_size]
+    subdirs = ["/train/", "/test/", "/val/"]
+    for subdir in subdirs:
+        if not path.exists(f"{root}{subdir}/images"):
+            os.makedirs(f"{root}{subdir}/images")
+        if not path.exists(f"{root}{subdir}/labels"):
+            os.makedirs(f"{root}{subdir}/labels")
 
-    return {
-        "train": [images[train_idx], labels[train_idx]],
-        "val": [images[val_idx], labels[val_idx]],
-        "test": [images[test_idx], labels[test_idx]]
-    }
+    for idx, subdir in zip([train_idx, test_idx, val_idx], subdirs):
+        for i, id in enumerate(idx):
+            image = Image.fromarray(images[id])
+            label = labels[id]
+            
+            dir = f"{root}{subdir}"
+            image.save(os.path.join(f"{dir}images/", f"image_{i:05d}.png"))
+            with open(os.path.join(f"{dir}labels/", f"label_{i:05d}.txt"), "w") as f:
+                f.write(str(label))
 
 
 class GalaxyDataset(data.Dataset):
@@ -77,30 +85,48 @@ class GalaxyDataset(data.Dataset):
     data.
 
     Attributes:
-        images: 
-            A numpy ndarray containing galaxy images.
-        labels:
-            A numpy ndarray containing galaxy labels.
-        transform:
-            An instance of the torchvision Compose class,
-            used to transform the image data.
+        image_dir:
+            The sub directory where to find the images.
+        label_dir:
+            The sub directory where to find the labels.
+        indices:
+            The list of indices for the images and labels
+            in the subdirectory.
+        transform: 
+            The transformation composer instance to apply
+            to the images. 
     """
 
     def __init__(
         self, 
-        images: np.ndarray,
-        labels: np.ndarray,
-        transform: transforms.Compose | None = None
+        dir: str = "data/train",
+        transform: transforms.Compose | None = None,
+        debug: bool = True,
     ) -> None:
         """Initializes the instance based on provided data
         
         Args:
-            images: The galaxy images.
-            labels: The galaxy labels.
-            transform: The image transformation.
+            dir:
+                The directory where the Galaxy10 image data can be 
+                found. Provide either train, val, or test directory.
+            transform:
+                An instance of the torchvision Compose class, used 
+                to transform the image data.
+            debug:
+                Boolean flag to determine whether to subset data for
+                debugging. 
         """
-        self.images = images
-        self.labels = labels
+        
+        self.image_dir = f"{dir}/images"
+        self.label_dir = f"{dir}/labels"
+        self.indices = sorted([
+            f.split("_")[1].split(".")[0]
+            for f in os.listdir(self.image_dir)
+        ])
+    
+        if debug == True:
+            self.indices = self.indices[:32]
+
         if transform is not None:
             self.transform = transform
         else:
@@ -122,22 +148,31 @@ class GalaxyDataset(data.Dataset):
             A tuple of a tensor and a numpy unsigned integer,
             representing the image and the associated label.
         """
-        image = Image.fromarray(self.images[idx].astype("uint8"))
+        image_file = path.join(
+            self.image_dir, f"image_{self.indices[idx]}.png"
+        )
+        image = Image.open(image_file)
         image = self.transform(image)
-        label = self.labels[idx]
+
+        label_file = path.join(
+            self.label_dir, f"label_{self.indices[idx]}.txt"
+        )
+        label = int(open(label_file).read())
+
         return {"image": image, "label": label}
     
     def __len__(self) -> int:
         """Returns the number of elements in the Dataset."""
-        return len(self.labels)
+        return len(self.indices)
 
 
 def load_data(
-    splits: dict[str, tuple[np.ndarray]],
+    dir: str = "data",
     batch_size: int = 16,
-    image_transforms: dict[str, transforms.Compose] = None
+    image_transforms: dict[str, transforms.Compose] = None,
+    debug: bool = True,
 ) -> dict[str, data.DataLoader]:
-    """Loads train, val and test splits into PyTorch DataLoaders
+    """Lazy loads train, val and test splits into PyTorch DataLoaders
     of specified batch size.
     
     Args:
@@ -150,11 +185,15 @@ def load_data(
         image_transforms:
             A dictionary mapping the keys "train", "val" and
             "test" to the corresponding image transformations. 
+        debug:
+            Boolean flag to determine whether to subset data for
+            debugging. 
 
     Returns:
         A dictionary mapping the keys "train", "val" and "test"
         to the corresponding DataLoaders.   
     """
+
     if image_transforms == None:
         image_transforms = {
             "train": None, 
@@ -163,11 +202,12 @@ def load_data(
         }
 
     data_loaders = {}
+    splits = ["test", "train", "val"]
     for split in splits:
         dataset = GalaxyDataset(
-            splits[split][0], 
-            splits[split][1],
-            image_transforms[split]
+            f"{dir}/{split}",
+            image_transforms[split],
+            debug
         )
         shuffle = True if split == "train" else False
         data_loader = data.DataLoader(

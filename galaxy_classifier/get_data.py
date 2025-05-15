@@ -171,6 +171,7 @@ def load_data(
     batch_size: int = 16,
     image_transforms: dict[str, transforms.Compose] = None,
     debug: bool = True,
+    num_workers: int = 0
 ) -> dict[str, data.DataLoader]:
     """Lazy loads train, val and test splits into PyTorch DataLoaders
     of specified batch size.
@@ -188,6 +189,8 @@ def load_data(
         debug:
             Boolean flag to determine whether to subset data for
             debugging. 
+        num_workers:
+            Number of subprocesses to use for data loading.
 
     Returns:
         A dictionary mapping the keys "train", "val" and "test"
@@ -213,7 +216,9 @@ def load_data(
         data_loader = data.DataLoader(
             dataset, 
             batch_size=batch_size, 
-            shuffle=shuffle
+            shuffle=shuffle,
+            pin_memory=True,
+            num_workers=num_workers
         )
         data_loaders[split] = data_loader
     return data_loaders
